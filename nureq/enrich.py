@@ -30,7 +30,7 @@ def hunter_keys():
         i += 1
     if keys:
         return keys
-    # fallback: cargar del .env directamente (robustez fuera del CLI)
+    # fallback: cargar del .env directamente (robustez fuera de la API)
     try:
         from .config import load_env
         env = load_env()

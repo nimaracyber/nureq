@@ -20,10 +20,13 @@ def sev(c, s):
 
 
 def banner():
-    print(f"{C['bold']}{C['cyan']}  ┌─────────────────────────────────────────────┐")
-    print(f"  │  NUREQ — Analizador OSINT inteligente (CLI)       │")
-    print(f"  │  Claude-OSINT arsenal + Shodan + DeepSeek v4      │{C['reset']}")
-    print(f"  └─────────────────────────────────────────────┘")
+    w = 45
+    l1 = "NUREQ — Analizador OSINT inteligente"
+    l2 = "Claude-OSINT arsenal + Shodan + DeepSeek v4"
+    print(f"{C['bold']}{C['cyan']}  ┌{'─' * w}┐")
+    print(f"  │  {l1[:w - 3].ljust(w - 2)}│")
+    print(f"  │  {l2[:w - 3].ljust(w - 2)}│{C['reset']}")
+    print(f"  └{'─' * w}┘")
 
 
 def phase(msg):

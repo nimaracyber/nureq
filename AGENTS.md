@@ -1,4 +1,4 @@
-# nureq — Investigador OSINT 100% libre (CLI)
+# nureq — API de investigación OSINT (agente IA libre)
 
 > Proyecto separado de redteam-lab. OSINT avanzado "desde afuera" contra targets autorizados,
 > sin guion: un agente IA (DeepSeek v4) investiga libremente con shell total via netns redteam.
@@ -23,15 +23,18 @@
 - Shodan: key compartida con CyberLab (plan dev, 100 creditos/mes). Cache 7d + presupuesto por corrida.
 
 ## Uso
+**La superficie del producto es la API HTTP** (`nureq/nureq_api.py`): una consulta por URL
+y devuelve data (JSON + report.md). El motor (`nureq.py`) es el orquestador que la API invoca
+(perfil profundo, sin VPN); también se puede correr a mano para debug:
 ```
-nureq <dominio|ip|host:puerto> [--perfil rapido|medio|profundo] [--max-steps N]
-                               [--no-vpn] [--pipeline-only] [--json]
+python3 nureq.py <dominio|ip|host:puerto> [--perfil rapido|medio|profundo] [--max-steps N]
+                                              [--no-vpn] [--pipeline-only] [--json]
 ```
 - `--perfil` ajusta presupuesto (pasos/minutos/creditos Shodan), NO el guion.
 - `--pipeline-only`: recon fijo (legacy, sin agente).
 
 ## Estructura
-- `nureq.py` — CLI + orquestador (arranca el agente, guarda reporte, `--resume`)
+- `nureq.py` — motor + orquestador (lo invoca la API; arranca el agente, guarda reporte, `--resume`)
 - `nureq/agent.py` — **EL INVESTIGADOR**: loop agentic con function calling, scope auto-expansivo,
   presupuesto, anti-loop, auto-harvest, validadores read-only, escalamiento a v4-pro, checkpoint
 - `nureq/ai.py` — DeepSeek v4-flash (loop) + v4-pro (analista/reporte) via canal directo (Session)
@@ -200,11 +203,11 @@ empresa fueron ELIMINADOS — la investigación ya trae esas ramas solas).
   NO de nureq-api. El reporte/PDF del cliente NO menciona VPN en ningún lado (saco el header,
   la fila de la tabla y el footer de report.py).
 - **Perfil ÚNICO = profundo**: si el cliente manda `rapido`/`medio` (o nada), se coer a profundo
-  con `aviso` en la respuesta. El CLI de nureq conserva sus 3 perfiles.
+  con `aviso` en la respuesta. El motor conserva sus 3 perfiles (la API usa profundo).
 - **Servicio**: `nureq-api.service` (systemd, `Restart=always`) → `0.0.0.0:9998`
   (puerto configurable `NUREQ_API_PORT`, IP VPS 103.199.186.207).
   ⏸ **API BAJADA (01/10/2026)**: stop+disabled a pedido del operador (puerto 9998 libre,
-  sin procesos). Se retoma el deploy cuando el repo esté pulido; el CLI sigue funcionando igual.
+  sin procesos). Se retoma el deploy cuando el repo esté pulido; el motor sigue funcionando igual.
 - **Auth**: SOLO `Authorization: Bearer <NUREQ_API_TOKEN>` (se sacó `?key=` — quedaba en logs).
   Token autogenerado en .env, 401 sin token. Rate limit `NUREQ_API_RATE` (default 20/min).
 - **Endpoints**:

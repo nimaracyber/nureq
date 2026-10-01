@@ -1,4 +1,4 @@
-"""Configuracion de nureq: carga .env, flags de CLI, perfiles."""
+"""Configuracion de nureq: carga .env, flags del motor, perfiles."""
 import os
 from pathlib import Path
 
