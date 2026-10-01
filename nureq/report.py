@@ -22,7 +22,7 @@ def sev(c, s):
 def banner():
     w = 45
     l1 = "NUREQ — Analizador OSINT inteligente"
-    l2 = "Claude-OSINT arsenal + Shodan + DeepSeek v4"
+    l2 = "Claude-OSINT + Shodan + DeepSeek v4"
     print(f"{C['bold']}{C['cyan']}  ┌{'─' * w}┐")
     print(f"  │  {l1[:w - 3].ljust(w - 2)}│")
     print(f"  │  {l2[:w - 3].ljust(w - 2)}│{C['reset']}")
