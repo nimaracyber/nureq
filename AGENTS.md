@@ -203,6 +203,8 @@ empresa fueron ELIMINADOS — la investigación ya trae esas ramas solas).
   con `aviso` en la respuesta. El CLI de nureq conserva sus 3 perfiles.
 - **Servicio**: `nureq-api.service` (systemd, `Restart=always`) → `0.0.0.0:9998`
   (puerto configurable `NUREQ_API_PORT`, IP VPS 103.199.186.207).
+  ⏸ **API BAJADA (01/10/2026)**: stop+disabled a pedido del operador (puerto 9998 libre,
+  sin procesos). Se retoma el deploy cuando el repo esté pulido; el CLI sigue funcionando igual.
 - **Auth**: SOLO `Authorization: Bearer <NUREQ_API_TOKEN>` (se sacó `?key=` — quedaba en logs).
   Token autogenerado en .env, 401 sin token. Rate limit `NUREQ_API_RATE` (default 20/min).
 - **Endpoints**:
