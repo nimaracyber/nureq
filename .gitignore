@@ -1,0 +1,31 @@
+# Secretos y estado — NUNCA commitear
+.env
+.env.*
+*.db
+
+# Runtime / caches
+cache/
+reports/
+claude-sessions/
+checkpoints/
+*.pyc
+__pycache__/
+.nuclei-cache/
+.nuclei-config/
+.uncover-config/
+nuclei/
+subfinder/
+logs/
+
+# Basura de corridas (cookies/html sueltos por redirects de curl)
+"import
+1500
+2000
+3000
+E
+*.bak
+*.bak-*
+
+# Backups / temporales
+*.tmp
+*.log
