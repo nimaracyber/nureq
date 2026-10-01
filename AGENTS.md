@@ -231,6 +231,29 @@ empresa fueron ELIMINADOS — la investigación ya trae esas ramas solas).
 - Verificado 04/09: selftest OK (53 PASS, +3 hunter domain search) · coerce a profundo OK ·
   subprocess con `--no-vpn` confirmado · auth 401/200 · cache-hit · 429 · report/pdf/link OK.
 - Reinicio tras editar: `systemctl restart nureq-api`.
+- ⚠ **V4 (01/10/2026) reemplaza**: BYOK persistente + SIN PDF + IA obligatoria (ver sección abajo).
+
+## 🔑 NUREQ-API V4 (01/10/2026) — BYOK + sin PDF + IA obligatoria
+**Pulido del repo (decisión del operador)**: la API ya no usa la key del dueño ni genera PDFs.
+- **BYOK persistente**: `PUT /api-key` (Bearer) guarda la key de DeepSeek DEL CLIENTE
+  (`sk-...`) en `cache/client_deepseek_key.json` (chmod 600, nunca al repo ni a logs),
+  **validada antes** contra `GET /models` (401 → 400 con mensaje). `GET /api-key` estado
+  enmascarado (`...abcd`), `DELETE /api-key` borra. Override de validación para tests:
+  `NUREQ_API_VALIDATE_URL`.
+- **IA obligatoria**: `/consulta` sin key guardada → **400** ("cargala con PUT /api-key");
+  no existe modo data-only por API. `no_ai` eliminado del contrato.
+- **La key del `.env` NUNCA se usa en la API**: el subprocess recibe `env` explícito con
+  `DEEPSEEK_API_KEY` = key del cliente (nunca en argv/ps); el `setdefault` de `config`
+  no la pisa. Verificado en `/proc/*/environ`.
+- **SIN PDF en ningún lado**: `report.py` sin `make_pdf`/wkhtmltopdf (función eliminada),
+  `nureq.py` sin aviso de PDF, API sin `reporte_pdf`, `/corridas/<id>/pdf` → 404 JSON,
+  `/link` solo report. Entregable = **data**: JSON (findings + entidades + resumen) +
+  `report.md`; el PDF final lo arma el cliente por su lado.
+- **Sin permisos**: agente autónomo total (NUREQ_AUTONOMO); la API no agrega gates.
+- **Tests 01/10 (11 PASS)**: `/tmp/opencode/test_nureq_api.py` (health, api-key estado/guardado/
+  borrado, sin key → 400, formato inválido → 400, validador simulado, key del cliente en el
+  subprocess, key fuera de argv, /pdf 404, resultado sin pdf). Selftest offline OK.
+- La API sigue **BAJADA** (stop+disabled); deploy cuando el operador retome.
 
 ## 👥 EMPLEADOS / DUEÑOS (04/09/2026) — Hunter Domain Search + LinkedIn vía r.jina.ai
 **Diagnóstico**: las dorks de buscadores no traían empleados (bloqueados desde datacenter) y el

@@ -174,9 +174,6 @@ def main():
     base = report.save_report(args.target, findings, assets, run_log, content, reasoning,
                               Path(cfg.reports_dir), cfg, entities=entities)
     report.result(f"\nReporte guardado en: {base}")
-    pdfs = list(base.glob("*.pdf"))
-    if pdfs:
-        report.result(f"PDF: {pdfs[0]}")
     if args.json:
         print(findings.to_jsonl())
     return 0

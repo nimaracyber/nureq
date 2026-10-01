@@ -1,20 +1,24 @@
-"""nureq-api — API REST de OSINT por URL (una sola consulta por página).
+"""nureq-api — API REST de OSINT por URL (agente IA, una sola consulta por página).
 
-Contrato (V2, 04/09/2026):
-- Una sola consulta por URL/dominio/IP. NO hay endpoints granulares (dns/ct/email/persona/empresa):
-  la investigación completa ya aspira emails, personas y empresas dentro del resultado.
-- POST /consulta {"target": "url|dominio|ip|host:puerto", "no_ai": bool}
+Contrato (V4, 01/10/2026):
+- IA OBLIGATORIA con key DEL CLIENTE: se configura una vez con PUT /api-key
+  (se valida contra DeepSeek y queda guardada en disco 600). La key del .env
+  del servidor NO se usa nunca en la API.
+- POST /consulta {"target": "url|dominio|ip|host:puerto", "fresca": bool}
     -> 202 {job_id} (corrida en background, estado en /corridas/<id>)
+    -> 400 si no hay key del cliente configurada
     -> SIEMPRE perfil profundo (único; rapido/medio se coer con aviso)
     -> SIEMPRE sin VPN (--no-vpn; la API no usa netns)
     -> ?sincrono=1: espera y devuelve el resultado completo en la misma llamada
     -> 429 si ya hay NUREQ_API_MAXJOBS corridas en paralelo
     -> si existe reporte profundo del mismo target < NUREQ_API_CACHE_TTL -> responde cache
 - GET /corridas (últimas 20) · GET /corridas/<id> (estado + resultado completo)
-- GET /corridas/<id>/report (markdown) · GET /corridas/<id>/pdf (binario)
+- GET /corridas/<id>/report (markdown) · POST /corridas/<id>/link (link temporal sin Bearer)
+- GET/PUT/DELETE /api-key (Bearer) — estado enmascarado / guardar validada / borrar
+- SIN PDF: la API devuelve DATA (JSON + report.md); el PDF final lo arma el cliente.
 - GET /health (sin auth)
 - Auth: SOLO Authorization: Bearer <NUREQ_API_TOKEN> (nada de ?key=, queda en logs).
-- Jobs persistidos en cache/api_jobs/<id>.json (sobreviven restart; los running quedan interrumpidos).
+- Jobs persistidos en cache/api_jobs/<id>.json (sobrevivientes a restart).
 - Levantar:  python3 -m nureq.nureq_api   (0.0.0.0:9998, NUREQ_API_PORT)
 """
 import hashlib
@@ -71,6 +75,48 @@ def _get_token():
 
 
 API_TOKEN = _get_token()
+
+# --- key del cliente (BYOK): guardada aparte, nunca en el repo ni en logs ---
+KEY_FILE = BASE_DIR / "cache" / "client_deepseek_key.json"
+VALIDATE_URL = os.getenv("NUREQ_API_VALIDATE_URL") or "https://api.deepseek.com/models"
+
+
+def _load_client_key():
+    try:
+        return json.loads(KEY_FILE.read_text()).get("api_key") or ""
+    except Exception:
+        return ""
+
+
+def _save_client_key(key):
+    KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    KEY_FILE.write_text(json.dumps({"api_key": key, "actualizada": time.time()}))
+    os.chmod(KEY_FILE, 0o600)
+    try:
+        os.chmod(KEY_FILE.parent, 0o700)
+    except Exception:
+        pass
+
+
+def _mask_key(k):
+    return f"...{k[-4:]}" if k and len(k) >= 8 else ("(set)" if k else "")
+
+
+def _validate_deepseek_key(key):
+    """Valida la key del cliente contra DeepSeek (GET /models). True/False + error."""
+    if not key or not key.startswith("sk-"):
+        return False, "formato invalido: la key de DeepSeek empieza con 'sk-'"
+    try:
+        import requests
+        r = requests.get(VALIDATE_URL, headers={"Authorization": f"Bearer {key}"},
+                         timeout=15)
+        if r.status_code == 200:
+            return True, None
+        if r.status_code == 401:
+            return False, "DeepSeek rechazo la key (401): revisala"
+        return False, f"DeepSeek respondio {r.status_code} al validar"
+    except Exception as e:
+        return False, f"no se pudo validar la key: {str(e)[:100]}"
 
 
 # --- persistencia de jobs ---
@@ -148,7 +194,7 @@ def _auth_all():
         return None
     parts = request.path.strip("/").split("/")
     if (len(parts) == 3 and parts[0] == "corridas"
-            and parts[2] in ("pdf", "report") and _check_dl_ticket(parts[1], parts[2])):
+            and parts[2] == "report" and _check_dl_ticket(parts[1], "report")):
         return None
     if not _check_auth():
         return jsonify({"error": "unauthorized"}), 401
@@ -268,7 +314,6 @@ def _resultado(job):
         "entidades": entidades,
         "resumen_investigador": resumen_investigador,
         "reporte_md": f"/corridas/{job['id']}/report",
-        "reporte_pdf": f"/corridas/{job['id']}/pdf",
     }
 
 
@@ -277,7 +322,7 @@ def _job_public(job):
                                "terminado", "error") if k in job}
     if job.get("terminado") and job.get("creado"):
         out["tiempo_s"] = round(job["terminado"] - job["creado"], 1)
-    for k in ("cached", "duplicado", "no_ai"):
+    for k in ("cached", "duplicado"):
         if job.get(k):
             out[k] = job[k]
     return out
@@ -292,6 +337,34 @@ def health():
 @app.get("/favicon.ico")
 def favicon():
     return "", 404
+
+
+@app.get("/api-key")
+def get_api_key():
+    """Estado de la key del cliente (enmascarada)."""
+    k = _load_client_key()
+    return jsonify({"guardada": bool(k), "masked": _mask_key(k)})
+
+
+@app.put("/api-key")
+def put_api_key():
+    """Guarda la key de DeepSeek del cliente (validada). Body: {"api_key": "sk-..."}"""
+    body = request.get_json(silent=True) or {}
+    key = (body.get("api_key") or "").strip()
+    ok, err = _validate_deepseek_key(key)
+    if not ok:
+        return jsonify({"error": err}), 400
+    _save_client_key(key)
+    return jsonify({"ok": True, "guardada": True, "masked": _mask_key(key)})
+
+
+@app.delete("/api-key")
+def del_api_key():
+    try:
+        KEY_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "guardada": False})
 
 
 @app.get("/corridas")
@@ -310,7 +383,6 @@ def list_corridas():
                 out.append({
                     "dir": d.name,
                     "report": md.exists(),
-                    "pdf": any(d.glob("*.pdf")),
                     "target": (d.name.rsplit("_", 2)[0] if "_" in d.name else d.name),
                 })
     return jsonify({"corridas": out})
@@ -349,7 +421,6 @@ def job_link(job_id):
     except ValueError:
         ttl = DL_TTL
     return jsonify({
-        "pdf": f"http://{host}/corridas/{job_id}/pdf?tk={_dl_ticket(job_id, 'pdf', ttl)}",
         "report": f"http://{host}/corridas/{job_id}/report?tk={_dl_ticket(job_id, 'report', ttl)}",
         "expira": int(time.time()) + ttl,
     })
@@ -374,41 +445,28 @@ def job_report(job_id):
 
 @app.get("/corridas/<job_id>/pdf")
 def job_pdf(job_id):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "job no existe"}), 404
-    base = job.get("base")
-    if isinstance(base, str):
-        base = Path(base)
-    if not base or not base.exists():
-        base = _buscar_base(job["target"], job["perfil"])
-    if not base:
-        return jsonify({"error": "sin reporte"}), 404
-    pdfs = list(base.glob("*.pdf"))
-    if not pdfs:
-        return jsonify({"error": "sin pdf"}), 404
-    p = pdfs[0]
-    return p.read_bytes(), 200, {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": f'inline; filename="{p.name}"'}
+    """PDF deshabilitado: nureq devuelve DATA (JSON + report.md)."""
+    return jsonify({"error": "PDF deshabilitado en nureq: usar /corridas/<id> (data) "
+                             "o /corridas/<id>/report (markdown)"}), 404
 
 
 @app.post("/consulta")
 def consulta():
-    """Una sola consulta por URL. Lanza la investigación completa en background.
-    Body: {"target": "https://ejemplo.com/path|dominio|ip|host:puerto",
-           "perfil": "rapido|medio|profundo", "no_ai": bool}
-    ?sincrono=1 (solo rapido): espera y devuelve el resultado en la misma llamada."""
+    """Una sola consulta por URL. Lanza la investigación completa (con IA) en background.
+    Body: {"target": "https://ejemplo.com/path|dominio|ip|host:puerto", "fresca": bool}
+    ?sincrono=1: espera y devuelve el resultado en la misma llamada."""
     body = request.get_json(silent=True) or {}
     target = _normalizar_target(body.get("target"))
     perfil_pedido = str(body.get("perfil") or "").strip()
     perfil = "profundo"  # perfil unico: la API corre todo en profundo
-    no_ai = body.get("no_ai") in (True, "true", "1", 1)
     fresca = body.get("fresca") in (True, "true", "1", 1)
     sincrono = request.args.get("sincrono") in ("1", "true")
     if not target:
         return jsonify({"error": "target requerido (URL|dominio|ip|host:puerto)"}), 400
+    client_key = _load_client_key()
+    if not client_key:
+        return jsonify({"error": "sin API key de DeepSeek configurada: cargala una vez "
+                                 "con PUT /api-key (sk-...). La API no usa la key del servidor."}), 400
     aviso = None
     if perfil_pedido and perfil_pedido != "profundo":
         aviso = f"perfil '{perfil_pedido}' ya no existe: la API corre todo en profundo"
@@ -428,7 +486,7 @@ def consulta():
         cached_base = None if fresca else _find_cached(target, perfil)
         if cached_base:
             job = {"id": uuid.uuid4().hex[:12], "estado": "cached", "target": target,
-                   "perfil": perfil, "no_ai": no_ai, "base": str(cached_base),
+                   "perfil": perfil, "base": str(cached_base),
                    "creado": time.time(), "terminado": time.time(), "error": None,
                    "cached": True}
             JOBS[job["id"]] = job
@@ -444,7 +502,7 @@ def consulta():
             return jsonify({"error": f"ocupado: ya hay {MAX_JOBS} corridas en paralelo, reintentar en un rato"}), 429
 
         job = {"id": uuid.uuid4().hex[:12], "estado": "running", "target": target,
-               "perfil": perfil, "no_ai": no_ai, "base": None,
+               "perfil": perfil, "base": None,
                "creado": time.time(), "terminado": None, "error": None}
         JOBS[job["id"]] = job
     _save_job(job)
@@ -453,11 +511,12 @@ def consulta():
         try:
             cmd = [sys.executable, str(BASE_DIR / "nureq.py"), job["target"],
                    "--perfil", job["perfil"], "--no-vpn"]
-            if job.get("no_ai"):
-                cmd.append("--no-ai")
             timeout = config.PERFILES[job["perfil"]]["minutes"] * 60 + 1200
+            # env explicito: la key del CLIENTE pisa cualquier key heredada del .env
+            env = os.environ.copy()
+            env["DEEPSEEK_API_KEY"] = client_key
             proc = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True,
-                                  text=True, timeout=timeout)
+                                  text=True, timeout=timeout, env=env)
             job["estado"] = "done" if proc.returncode == 0 else "error"
             job["error"] = proc.stderr[-500:] if proc.returncode != 0 else None
             base = _buscar_base(job["target"], job["perfil"], despues=job["creado"] - 5)
